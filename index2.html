@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Tentacle Follower</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: black;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="canvas"></canvas>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let mouse = { x: canvas.width / 2, y: canvas.height / 2 };
+        document.addEventListener('mousemove', (e) => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+        });
+
+        class Node {
+            constructor(x, y, size, parent = null) {
+                this.x = x;
+                this.y = y;
+                this.size = size;
+                this.parent = parent;
+                this.absAngle = 0;
+                this.relAngle = 0;
+                this.children = [];
+                if (parent) parent.children.push(this);
+            }
+
+            updateRelative(updateAbs, updateRel) {
+                if (updateAbs && this.parent) {
+                    this.absAngle = Math.atan2(this.y - this.parent.y, this.x - this.parent.x);
+                }
+                if (updateRel && this.parent) {
+                    this.relAngle = this.absAngle - this.parent.absAngle;
+                }
+            }
+        }
+
+        class Tentacle {
+            constructor(x, y, segmentCount, segmentLength) {
+                this.nodes = [];
+                this.speed = 10;
+
+                let prev = null;
+                for (let i = 0; i < segmentCount; i++) {
+                    let node = new Node(x, y + i * segmentLength, segmentLength, prev);
+                    this.nodes.push(node);
+                    prev = node;
+                }
+            }
+
+            moveTo(targetX, targetY) {
+                let x = targetX;
+                let y = targetY;
+                let len = this.nodes[0].size;
+
+                for (let i = this.nodes.length - 1; i >= 0; i--) {
+                    const node = this.nodes[i];
+                    const dx = x - node.x;
+                    const dy = y - node.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    const angle = Math.atan2(dy, dx);
+                    const moveDist = dist > len ? len : dist;
+
+                    node.x = x - moveDist * Math.cos(angle);
+                    node.y = y - moveDist * Math.sin(angle);
+
+                    x = node.x;
+                    y = node.y;
+                    len = node.size;
+                }
+
+                for (let i = 0; i < this.nodes.length; i++) {
+                    const node = this.nodes[i];
+                    node.updateRelative(true, true);
+                }
+            }
+
+            draw(ctx) {
+                ctx.beginPath();
+                ctx.lineWidth = 6;
+                ctx.strokeStyle = 'lime';
+
+                ctx.moveTo(this.nodes[0].x, this.nodes[0].y);
+                for (let i = 1; i < this.nodes.length; i++) {
+                    ctx.lineTo(this.nodes[i].x, this.nodes[i].y);
+                }
+                ctx.stroke();
+            }
+        }
+
+        const tentacle = new Tentacle(canvas.width / 2, canvas.height / 2, 20, 15);
+
+        function animate() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            tentacle.moveTo(mouse.x, mouse.y);
+            tentacle.draw(ctx);
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+
+</html>
