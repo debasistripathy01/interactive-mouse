@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Tentacle Follower</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: black;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="canvas" width="800" height="600"></canvas>
+    <script>
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+        const mouse = { x: canvas.width / 2, y: canvas.height / 2 };
+
+        document.addEventListener("mousemove", e => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+        });
+
+        class Node {
+            constructor(x, y, size, parent = null) {
+                this.x = x;
+                this.y = y;
+                this.size = size;
+                this.parent = parent;
+                this.children = [];
+                this.absAngle = 0;
+                this.relAngle = 0;
+                if (parent) parent.children.push(this);
+            }
+
+            updateRelative(updateAbs, updateRel) {
+                if (updateAbs && this.parent) {
+                    this.absAngle = Math.atan2(this.y - this.parent.y, this.x - this.parent.x);
+                }
+                if (updateRel && this.parent) {
+                    this.relAngle = this.absAngle - this.parent.absAngle;
+                }
+            }
+        }
+
+        class Serpent {
+            constructor(x, y, spineCount, spineLength) {
+                this.spine = [];
+                this.legs = []; // Each spine node has 2 legs
+                this.speed = 10;
+
+                let prev = null;
+                for (let i = 0; i < spineCount; i++) {
+                    const node = new Node(x, y + i * spineLength, spineLength, prev);
+                    this.spine.push(node);
+                    prev = node;
+
+                    // Attach legs to body node (left & right)
+                    const legLength = 8;
+                    const angleOffset = Math.PI / 2; // 90 degrees
+                    const leftLeg = new Node(
+                        node.x + legLength * Math.cos(node.absAngle - angleOffset),
+                        node.y + legLength * Math.sin(node.absAngle - angleOffset),
+                        legLength,
+                        node
+                    );
+                    const rightLeg = new Node(
+                        node.x + legLength * Math.cos(node.absAngle + angleOffset),
+                        node.y + legLength * Math.sin(node.absAngle + angleOffset),
+                        legLength,
+                        node
+                    );
+                    this.legs.push([leftLeg, rightLeg]);
+                }
+            }
+
+            moveTo(x, y) {
+                let len = this.spine[0].size;
+                for (let i = this.spine.length - 1; i >= 0; i--) {
+                    const node = this.spine[i];
+                    const dx = x - node.x;
+                    const dy = y - node.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    const angle = Math.atan2(dy, dx);
+                    const moveDist = Math.min(len, dist);
+
+                    node.x = x - moveDist * Math.cos(angle);
+                    node.y = y - moveDist * Math.sin(angle);
+
+                    x = node.x;
+                    y = node.y;
+                    len = node.size;
+                }
+
+                for (let i = 0; i < this.spine.length; i++) {
+                    const node = this.spine[i];
+                    node.updateRelative(true, true);
+
+                    // Reposition legs based on node angle
+                    const legLength = node.size * 0.6;
+                    const left = this.legs[i][0];
+                    const right = this.legs[i][1];
+
+                    const legAngle = node.absAngle;
+                    const offsetAngle = Math.PI / 2; // 90 degrees
+
+                    left.x = node.x + legLength * Math.cos(legAngle - offsetAngle);
+                    left.y = node.y + legLength * Math.sin(legAngle - offsetAngle);
+
+                    right.x = node.x + legLength * Math.cos(legAngle + offsetAngle);
+                    right.y = node.y + legLength * Math.sin(legAngle + offsetAngle);
+                }
+            }
+
+            draw(ctx) {
+                // Draw spine
+                ctx.beginPath();
+                ctx.lineWidth = 6;
+                ctx.strokeStyle = 'lime';
+                ctx.moveTo(this.spine[0].x, this.spine[0].y);
+                for (let i = 1; i < this.spine.length; i++) {
+                    ctx.lineTo(this.spine[i].x, this.spine[i].y);
+                }
+                ctx.stroke();
+
+                // Draw legs
+                ctx.strokeStyle = 'gray';
+                ctx.lineWidth = 2;
+                for (let i = 0; i < this.legs.length; i++) {
+                    const node = this.spine[i];
+                    const [left, right] = this.legs[i];
+
+                    ctx.beginPath();
+                    ctx.moveTo(node.x, node.y);
+                    ctx.lineTo(left.x, left.y);
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.moveTo(node.x, node.y);
+                    ctx.lineTo(right.x, right.y);
+                    ctx.stroke();
+                }
+            }
+        }
+
+        const serpent = new Serpent(canvas.width / 2, canvas.height / 2, 25, 15);
+
+        function animate() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            serpent.moveTo(mouse.x, mouse.y);
+            serpent.draw(ctx);
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+
+</body>
+
+</html>
