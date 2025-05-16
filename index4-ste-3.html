@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Tentacle Follower</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: black;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="canvas" width="800" height="600"></canvas>
+    <script>
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+        const mouse = { x: canvas.width / 2, y: canvas.height / 2 };
+        document.addEventListener("mousemove", e => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+        });
+
+        // ---------------- Node Class ----------------
+        class Node {
+            constructor(x, y, size, parent = null) {
+                this.x = x;
+                this.y = y;
+                this.size = size;
+                this.parent = parent;
+                this.absAngle = 0;
+                this.relAngle = 0;
+                this.children = [];
+                if (parent) parent.children.push(this);
+            }
+            updateRelative(updateAbs, updateRel) {
+                if (updateAbs && this.parent) {
+                    this.absAngle = Math.atan2(this.y - this.parent.y, this.x - this.parent.x);
+                }
+                if (updateRel && this.parent) {
+                    this.relAngle = this.absAngle - this.parent.absAngle;
+                }
+            }
+        }
+
+        // ---------------- Limb System ----------------
+        class LimbSystem {
+            constructor(end, length, speed, creature) {
+                this.end = end;
+                this.length = length;
+                this.speed = speed;
+                this.creature = creature;
+                this.hip = new Node(creature.x, creature.y, length, null);
+                this.hip.absAngle = creature.absAngle;
+                this.nodes = [this.hip, this.end];
+            }
+
+            moveTo(x, y) {
+                const dx = x - this.hip.x;
+                const dy = y - this.hip.y;
+                const dist = Math.hypot(dx, dy);
+                const angle = Math.atan2(dy, dx);
+                const len = Math.min(this.length, dist);
+
+                this.end.x = this.hip.x + len * Math.cos(angle);
+                this.end.y = this.hip.y + len * Math.sin(angle);
+
+                this.end.updateRelative(true, true);
+            }
+        }
+
+        // ---------------- Leg System ----------------
+        class LegSystem extends LimbSystem {
+            constructor(end, length, speed, creature) {
+                super(end, length, speed, creature);
+                this.goalX = end.x;
+                this.goalY = end.y;
+                this.step = 0;
+                this.forwardness = 0;
+
+                this.reach = 0.9 * Math.hypot(this.end.x - this.hip.x, this.end.y - this.hip.y);
+                let relAngle = this.creature.absAngle - Math.atan2(this.end.y - this.hip.y, this.end.x - this.hip.x);
+                relAngle -= 2 * Math.PI * Math.floor(relAngle / (2 * Math.PI) + 0.5);
+                this.swing = -relAngle + ((2 * (relAngle < 0) - 1) * Math.PI) / 2;
+                this.swingOffset = this.creature.absAngle - this.hip.absAngle;
+            }
+
+            update() {
+                this.hip.x = this.creature.x;
+                this.hip.y = this.creature.y;
+                this.hip.absAngle = this.creature.absAngle;
+
+                this.moveTo(this.goalX, this.goalY);
+
+                if (this.step === 0) {
+                    const dist = Math.hypot(this.end.x - this.goalX, this.end.y - this.goalY);
+                    if (dist > 1 || Math.random() < 0.01) {
+                        this.step = 1;
+                        this.goalX = this.hip.x +
+                            this.reach * Math.cos(this.swing + this.hip.absAngle + this.swingOffset) +
+                            (2 * Math.random() - 1) * this.reach;
+                        this.goalY = this.hip.y +
+                            this.reach * Math.sin(this.swing + this.hip.absAngle + this.swingOffset) +
+                            (2 * Math.random() - 1) * this.reach;
+                    }
+                } else if (this.step === 1) {
+                    const theta = Math.atan2(this.end.y - this.hip.y, this.end.x - this.hip.x) - this.hip.absAngle;
+                    const dist = Math.hypot(this.end.x - this.hip.x, this.end.y - this.hip.y);
+                    const forwardness2 = dist * Math.cos(theta);
+                    const dF = this.forwardness - forwardness2;
+                    this.forwardness = forwardness2;
+                    if (dF * dF < 1) {
+                        this.step = 0;
+                        this.goalX = this.hip.x + (this.end.x - this.hip.x);
+                        this.goalY = this.hip.y + (this.end.y - this.hip.y);
+                    }
+                }
+            }
+        }
+
+        // ---------------- Creature Class ----------------
+        class Creature {
+            constructor(x, y, angle) {
+                this.x = x;
+                this.y = y;
+                this.absAngle = angle;
+                this.fSpeed = 0;
+                this.fAccel = 0.4;
+                this.fFric = 0.05;
+                this.fRes = 0.02;
+                this.fThresh = 10;
+
+                this.rSpeed = 0;
+                this.rAccel = 0.05;
+                this.rFric = 0.03;
+                this.rRes = 0.02;
+                this.rThresh = 0.2;
+
+                this.children = [];
+                this.systems = [];
+            }
+
+            addLeg(offsetAngle) {
+                const length = 25;
+                const end = new Node(this.x, this.y, length, null);
+                const system = new LegSystem(end, length, 0.4, this);
+                system.swing += offsetAngle;
+                this.systems.push(system);
+            }
+
+            follow(x, y) {
+                const dist = Math.hypot(this.x - x, this.y - y);
+                const angle = Math.atan2(y - this.y, x - this.x);
+
+                // Forward movement
+                let accel = this.fAccel;
+                const grounded = this.systems.filter(s => s.step === 0).length;
+                accel *= grounded / this.systems.length;
+
+                this.fSpeed += accel * (dist > this.fThresh);
+                this.fSpeed *= 1 - this.fRes;
+                const speed = Math.max(0, this.fSpeed - this.fFric);
+
+                // Rotation
+                let dif = this.absAngle - angle;
+                dif -= 2 * Math.PI * Math.floor(dif / (2 * Math.PI) + 0.5);
+                if (Math.abs(dif) > this.rThresh && dist > this.fThresh) {
+                    this.rSpeed -= this.rAccel * (2 * (dif > 0) - 1);
+                }
+                this.rSpeed *= 1 - this.rRes;
+                if (Math.abs(this.rSpeed) > this.rFric) {
+                    this.rSpeed -= this.rFric * (2 * (this.rSpeed > 0) - 1);
+                } else {
+                    this.rSpeed = 0;
+                }
+
+                // Position update
+                this.absAngle += this.rSpeed;
+                this.absAngle = (this.absAngle + Math.PI * 2) % (Math.PI * 2);
+
+                this.x += speed * Math.cos(this.absAngle);
+                this.y += speed * Math.sin(this.absAngle);
+
+                for (let i = 0; i < this.systems.length; i++) {
+                    this.systems[i].update();
+                }
+
+                this.draw();
+            }
+
+            draw() {
+                // Body
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 6, 0, 2 * Math.PI);
+                ctx.fillStyle = "lime";
+                ctx.fill();
+
+                // Legs
+                for (const sys of this.systems) {
+                    ctx.beginPath();
+                    ctx.moveTo(sys.hip.x, sys.hip.y);
+                    ctx.lineTo(sys.end.x, sys.end.y);
+                    ctx.strokeStyle = sys.step === 0 ? "gray" : "orange";
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+            }
+        }
+
+        // ---------------- Setup ----------------
+        const creature = new Creature(canvas.width / 2, canvas.height / 2, 0);
+        for (let i = 0; i < 6; i++) {
+            creature.addLeg((i % 2 === 0 ? 1 : -1) * (Math.PI / 6) + (i * Math.PI / 6));
+        }
+
+        function animate() {
+            ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            creature.follow(mouse.x, mouse.y);
+            requestAnimationFrame(animate);
+        }
+        animate();
+    </script>
+
+</body>
+
+</html>
